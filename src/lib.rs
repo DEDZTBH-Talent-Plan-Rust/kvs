@@ -19,7 +19,6 @@
 //! assert_eq!(kv.get("key1".to_owned()), None);
 //! ```
 
-
 use std::collections::HashMap;
 
 /// A KvStore stores key-value pairs in memory.
@@ -40,7 +39,7 @@ use std::collections::HashMap;
 /// assert_eq!(kv.get("key1".to_owned()), None);
 /// ```
 pub struct KvStore {
-    store: HashMap<String, String>
+    store: HashMap<String, String>,
 }
 
 impl KvStore {
@@ -60,7 +59,7 @@ impl KvStore {
     /// ```
     pub fn new() -> KvStore {
         KvStore {
-            store: HashMap::new()
+            store: HashMap::new(),
         }
     }
 

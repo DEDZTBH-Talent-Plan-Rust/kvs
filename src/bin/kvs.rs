@@ -3,9 +3,9 @@ use std::process::exit;
 
 #[derive(Clap)]
 #[clap(author, about, version)]
-pub struct Opt {
+pub struct Options {
     #[clap(subcommand)]
-    subcmd: SubCommand
+    subcmd: SubCommand,
 }
 
 #[derive(Clap)]
@@ -26,16 +26,16 @@ struct SetCmd {
 
 #[derive(Clap)]
 struct GetCmd {
-    key: String
+    key: String,
 }
 
 #[derive(Clap)]
 struct RmCmd {
-    key: String
+    key: String,
 }
 
 fn main() {
-    let opt = Opt::parse();
+    let opt = Options::parse();
     match opt.subcmd {
         SubCommand::Set(cmd) => {
             eprintln!("unimplemented");
