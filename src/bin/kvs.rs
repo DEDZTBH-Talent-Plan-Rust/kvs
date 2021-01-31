@@ -2,7 +2,7 @@ use clap::Clap;
 use std::process::exit;
 
 #[derive(Clap)]
-#[clap(version = "0.1.0", author = "DEDZTBH <peiqial@outlook.com>")]
+#[clap(author, about, version)]
 pub struct Opt {
     #[clap(subcommand)]
     subcmd: SubCommand
@@ -10,11 +10,11 @@ pub struct Opt {
 
 #[derive(Clap)]
 enum SubCommand {
-    #[clap(version = "0.1.0", author = "DEDZTBH <peiqial@outlook.com>")]
+    #[clap(author, about = "Set the value of a string key to a string", version)]
     Set(SetCmd),
-    #[clap(version = "0.1.0", author = "DEDZTBH <peiqial@outlook.com>")]
+    #[clap(author, about = "Get the string value of a given string key", version)]
     Get(GetCmd),
-    #[clap(version = "0.1.0", author = "DEDZTBH <peiqial@outlook.com>")]
+    #[clap(author, about = "Remove a given key", version)]
     Rm(RmCmd),
 }
 
