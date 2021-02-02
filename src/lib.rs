@@ -20,6 +20,20 @@
 //! ```
 
 use std::collections::HashMap;
+use std::fmt;
+use std::path::Path;
+
+extern crate failure;
+#[macro_use]
+extern crate failure_derive;
+
+#[derive(Fail, Debug)]
+#[fail(display = "An error occurred.")]
+/// Error type of KvStore
+pub struct KvStoreError;
+
+/// Result type of KvStore
+pub type Result<T> = std::result::Result<T, KvStoreError>;
 
 /// A KvStore stores key-value pairs in memory.
 ///
@@ -80,8 +94,9 @@ impl KvStore {
     /// kv.set("key1".to_owned(), "11".to_owned());
     /// assert_eq!(kv.get("key1".to_owned()), Some("11".to_owned()));
     /// ```
-    pub fn set(&mut self, key: String, value: String) {
+    pub fn set(&mut self, key: String, value: String) -> Result<()> {
         self.store.insert(key, value);
+        Ok(())
     }
 
     /// Returns the value corresponding to the key.
@@ -104,8 +119,8 @@ impl KvStore {
     /// assert_eq!(kv.get("key1".to_owned()), Some("11".to_owned()));
     /// assert_eq!(returned_opt, Some("12".to_owned()));
     /// ```
-    pub fn get(&self, key: String) -> Option<String> {
-        self.store.get(&key).cloned()
+    pub fn get(&self, key: String) -> Result<Option<String>> {
+        Ok(self.store.get(&key).cloned())
     }
 
     /// Removes a key from the map if the key is present.
@@ -126,7 +141,13 @@ impl KvStore {
     /// assert_eq!(kv.get("key1".to_owned()), None);
     ///
     /// ```
-    pub fn remove(&mut self, key: String) {
+    pub fn remove(&mut self, key: String) -> Result<()> {
         self.store.remove(&key);
+        Ok(())
+    }
+
+    /// Opens a KvStore
+    pub fn open(path: &Path) -> Result<KvStore> {
+        unimplemented!();
     }
 }
