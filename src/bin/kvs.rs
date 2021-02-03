@@ -1,4 +1,9 @@
 use clap::Clap;
+use clap::ValueHint;
+use kvs::{ensure_log_file, KVLog, Result};
+use std::fs::OpenOptions;
+use std::io::BufWriter;
+use std::path::PathBuf;
 use std::process::exit;
 
 #[derive(Clap)]
@@ -6,6 +11,8 @@ use std::process::exit;
 pub struct Options {
     #[clap(subcommand)]
     subcmd: SubCommand,
+    #[clap(short, long, parse(from_os_str), value_hint = ValueHint::DirPath, default_value = "kvstore_data/")]
+    path: PathBuf,
 }
 
 #[derive(Clap)]
@@ -34,12 +41,16 @@ struct RmCmd {
     key: String,
 }
 
-fn main() {
+fn main() -> Result<()> {
     let opt = Options::parse();
     match opt.subcmd {
         SubCommand::Set(cmd) => {
-            eprintln!("unimplemented");
-            exit(-1)
+            // we only need to append
+            let mut open_opts = OpenOptions::new();
+            let log_file = ensure_log_file(&opt.path, open_opts.create(true).append(true))?;
+            let writer = BufWriter::new(log_file);
+            let kvlog = KVLog::new(cmd.key, cmd.value);
+            kvlog.serialize_to_writer(writer)?;
         }
         SubCommand::Get(cmd) => {
             eprintln!("unimplemented");
@@ -50,4 +61,5 @@ fn main() {
             exit(-1)
         }
     }
+    Ok(())
 }

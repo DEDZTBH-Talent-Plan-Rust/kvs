@@ -1,39 +1,38 @@
 #![deny(missing_docs)]
-//! kvs is a key-value pair storage in memory.
+//! kvs is a key-value pair storage using log structure.
 //!
 //! # Examples
 //!
 //! ```rust
 //! use kvs::KvStore;
+//! use tempfile::TempDir;
 //!
-//! let mut kv = KvStore::new();
-//! assert_eq!(kv.get("key1".to_owned()), None);
+//! let mut kv = KvStore::open(TempDir::new().unwrap()).unwrap();
+//! assert_eq!(kv.get("key1".to_owned()).unwrap(), None);
 //!
-//! kv.set("key1".to_owned(), "42".to_owned());
-//! kv.set("key2".to_owned(), "43".to_owned());
-//! assert_eq!(kv.get("key1".to_owned()), Some("42".to_owned()));
-//! assert_eq!(kv.get("key2".to_owned()), Some("43".to_owned()));
+//! kv.set("key1".to_owned(), "42".to_owned()).unwrap();
+//! kv.set("key2".to_owned(), "43".to_owned()).unwrap();
+//! assert_eq!(kv.get("key1".to_owned()).unwrap(), Some("42".to_owned()));
+//! assert_eq!(kv.get("key2".to_owned()).unwrap(), Some("43".to_owned()));
 //!
-//! kv.remove("key1".to_owned());
-//! kv.remove("key3".to_owned());
-//! assert_eq!(kv.get("key1".to_owned()), None);
+//! kv.remove("key1".to_owned()).unwrap();
+//! kv.remove("key3".to_owned()).unwrap();
+//! assert_eq!(kv.get("key1".to_owned()).unwrap(), None);
 //! ```
 
-use std::collections::HashMap;
-use std::fmt;
-use std::path::Path;
+mod error;
+mod kvlog;
 
-extern crate failure;
-#[macro_use]
-extern crate failure_derive;
+pub use crate::error::Result;
+pub use crate::kvlog::KVLog;
 
-#[derive(Fail, Debug)]
-#[fail(display = "An error occurred.")]
-/// Error type of KvStore
-pub struct KvStoreError;
+use crate::error::ErrorKind;
+use failure::ResultExt;
+use std::fs::*;
+use std::path::{Path, PathBuf};
 
-/// Result type of KvStore
-pub type Result<T> = std::result::Result<T, KvStoreError>;
+/// Since there is only 1 log file right now, its name is hardcoded.
+static LOG_FILE_NAME: &str = "0.log";
 
 /// A KvStore stores key-value pairs in memory.
 ///
@@ -43,40 +42,19 @@ pub type Result<T> = std::result::Result<T, KvStoreError>;
 ///
 /// ```rust
 /// use kvs::KvStore;
+/// use tempfile::TempDir;
 ///
-/// let mut kv = KvStore::new();
+/// let mut kv = KvStore::open(TempDir::new().unwrap()).unwrap();
 ///
-/// kv.set("key1".to_owned(), "42".to_owned());
-/// assert_eq!(kv.get("key1".to_owned()), Some("42".to_owned()));
+/// kv.set("key1".to_owned(), "42".to_owned()).unwrap();
+/// assert_eq!(kv.get("key1".to_owned()).unwrap(), Some("42".to_owned()));
 ///
-/// kv.remove("key1".to_owned());
-/// assert_eq!(kv.get("key1".to_owned()), None);
+/// kv.remove("key1".to_owned()).unwrap();
+/// assert_eq!(kv.get("key1".to_owned()).unwrap(), None);
 /// ```
-pub struct KvStore {
-    store: HashMap<String, String>,
-}
+pub struct KvStore;
 
 impl KvStore {
-    /// Creates an empty `KvStore`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use kvs::KvStore;
-    ///
-    /// let mut kv1 = KvStore::new();
-    /// let mut kv2 = KvStore::new();
-    ///
-    /// kv2.set("152mm".to_owned(), "12".to_owned());
-    /// assert_eq!(kv1.get("152mm".to_owned()), None);
-    /// assert_eq!(kv2.get("152mm".to_owned()), Some("12".to_owned()));
-    /// ```
-    pub fn new() -> KvStore {
-        KvStore {
-            store: HashMap::new(),
-        }
-    }
-
     /// Inserts a key-value pair into the map.
     ///
     /// If the `KvStore` did have this key present, the value is updated.
@@ -85,18 +63,18 @@ impl KvStore {
     ///
     /// ```
     /// use kvs::KvStore;
+    /// use tempfile::TempDir;
     ///
-    /// let mut kv = KvStore::new();
+    /// let mut kv = KvStore::open(TempDir::new().unwrap()).unwrap();
     ///
-    /// kv.set("key1".to_owned(), "12".to_owned());
-    /// assert_eq!(kv.get("key1".to_owned()), Some("12".to_owned()));
+    /// kv.set("key1".to_owned(), "12".to_owned()).unwrap();
+    /// assert_eq!(kv.get("key1".to_owned()).unwrap(), Some("12".to_owned()));
     ///
-    /// kv.set("key1".to_owned(), "11".to_owned());
-    /// assert_eq!(kv.get("key1".to_owned()), Some("11".to_owned()));
+    /// kv.set("key1".to_owned(), "11".to_owned()).unwrap();
+    /// assert_eq!(kv.get("key1".to_owned()).unwrap(), Some("11".to_owned()));
     /// ```
     pub fn set(&mut self, key: String, value: String) -> Result<()> {
-        self.store.insert(key, value);
-        Ok(())
+        unimplemented!();
     }
 
     /// Returns the value corresponding to the key.
@@ -107,20 +85,21 @@ impl KvStore {
     ///
     /// ```
     /// use kvs::KvStore;
+    /// use tempfile::TempDir;
     ///
-    /// let mut kv = KvStore::new();
-    /// assert_eq!(kv.get("key1".to_owned()), None);
+    /// let mut kv = KvStore::open(TempDir::new().unwrap()).unwrap();
+    /// assert_eq!(kv.get("key1".to_owned()).unwrap(), None);
     ///
-    /// kv.set("key1".to_owned(), "12".to_owned());
-    /// let returned_opt = kv.get("key1".to_owned());
+    /// kv.set("key1".to_owned(), "12".to_owned()).unwrap();
+    /// let returned_opt = kv.get("key1".to_owned()).unwrap();
     /// assert_eq!(returned_opt, Some("12".to_owned()));
     ///
-    /// kv.set("key1".to_owned(), "11".to_owned());
-    /// assert_eq!(kv.get("key1".to_owned()), Some("11".to_owned()));
+    /// kv.set("key1".to_owned(), "11".to_owned()).unwrap();
+    /// assert_eq!(kv.get("key1".to_owned()).unwrap(), Some("11".to_owned()));
     /// assert_eq!(returned_opt, Some("12".to_owned()));
     /// ```
     pub fn get(&self, key: String) -> Result<Option<String>> {
-        Ok(self.store.get(&key).cloned())
+        unimplemented!();
     }
 
     /// Removes a key from the map if the key is present.
@@ -129,25 +108,36 @@ impl KvStore {
     ///
     /// ```
     /// use kvs::KvStore;
+    /// use tempfile::TempDir;
     ///
-    /// let mut kv = KvStore::new();
+    /// let mut kv = KvStore::open(TempDir::new().unwrap()).unwrap();
     ///
-    /// kv.remove("key1".to_owned()); // nothing will change
+    /// kv.remove("key1".to_owned()).unwrap(); // nothing will change
     ///
-    /// kv.set("key1".to_owned(), "12".to_owned());
-    /// assert_eq!(kv.get("key1".to_owned()), Some("12".to_owned()));
+    /// kv.set("key1".to_owned(), "12".to_owned()).unwrap();
+    /// assert_eq!(kv.get("key1".to_owned()).unwrap(), Some("12".to_owned()));
     ///
-    /// kv.remove("key1".to_owned());
-    /// assert_eq!(kv.get("key1".to_owned()), None);
+    /// kv.remove("key1".to_owned()).unwrap();
+    /// assert_eq!(kv.get("key1".to_owned()).unwrap(), None);
     ///
     /// ```
     pub fn remove(&mut self, key: String) -> Result<()> {
-        self.store.remove(&key);
-        Ok(())
+        unimplemented!();
     }
 
     /// Opens a KvStore
-    pub fn open(path: &Path) -> Result<KvStore> {
+    pub fn open(path: impl Into<PathBuf>) -> Result<KvStore> {
         unimplemented!();
     }
+}
+
+/// Create directory if not exist and open log file with given OpenOptions
+pub fn ensure_log_file(p: impl Into<PathBuf>, open_opts: &OpenOptions) -> Result<File> {
+    let pathbuf = p.into();
+    let path = pathbuf.as_path();
+    if !path.exists() {
+        create_dir(path);
+    }
+    let log_file_path = path.join(LOG_FILE_NAME);
+    Ok(open_opts.open(log_file_path).context(ErrorKind::Io)?)
 }
