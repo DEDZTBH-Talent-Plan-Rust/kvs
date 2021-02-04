@@ -10,7 +10,7 @@ use std::process::exit;
 pub struct Options {
     #[clap(subcommand)]
     subcmd: SubCommand,
-    #[clap(short, long, parse(from_os_str), value_hint = ValueHint::DirPath, default_value = "kvs_data/")]
+    #[clap(short, long, parse(from_os_str), value_hint = ValueHint::DirPath, default_value = ".")]
     path: PathBuf,
 }
 
@@ -48,18 +48,16 @@ fn main() -> Result<()> {
     let opt = Options::parse();
     let mut store = KvStore::open(opt.path)?;
     match opt.subcmd {
-        SubCommand::Set(cmd) => {
-            store.set(cmd.key, cmd.value)?;
-        }
-        SubCommand::Get(cmd) => {
-            eprintln!("unimplemented");
-            exit(255)
-        }
+        SubCommand::Set(cmd) => store.set(cmd.key, cmd.value)?,
+        SubCommand::Get(cmd) => match store.get(cmd.key)? {
+            None => println!("Key not found"),
+            Some(s) => println!("{}", s),
+        },
         SubCommand::Rm(cmd) => match store.remove(cmd.key) {
             Ok(_) => {}
             Err(e) => {
                 if e.kind() == ErrorKind::KeyNotFound {
-                    eprintln!("{}", e);
+                    println!("{}", e);
                     exit(1);
                 }
                 return Result::Err(e);

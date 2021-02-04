@@ -62,4 +62,7 @@ pub enum ErrorKind {
     #[fail(display = "Key not found")]
     /// Error caused by getting or removing a key that does not exist
     KeyNotFound,
+    #[fail(display = "Corruption in log pointer map or log file detected")]
+    /// Error caused by a discrepancy between log pointer map and log file
+    Corruption,
 }
