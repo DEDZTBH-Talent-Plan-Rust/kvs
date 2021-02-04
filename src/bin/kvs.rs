@@ -1,6 +1,6 @@
 use clap::Clap;
 use clap::ValueHint;
-use kvs::{KvStore, Result};
+use kvs::{ErrorKind, KvStore, Result};
 use std::path::PathBuf;
 use std::process::exit;
 
@@ -53,12 +53,18 @@ fn main() -> Result<()> {
         }
         SubCommand::Get(cmd) => {
             eprintln!("unimplemented");
-            exit(-1)
+            exit(255)
         }
-        SubCommand::Rm(cmd) => {
-            eprintln!("unimplemented");
-            exit(-1)
-        }
+        SubCommand::Rm(cmd) => match store.remove(cmd.key) {
+            Ok(_) => {}
+            Err(e) => {
+                if e.kind() == ErrorKind::KeyNotFound {
+                    eprintln!("{}", e);
+                    exit(1);
+                }
+                return Result::Err(e);
+            }
+        },
     }
     Ok(())
 }

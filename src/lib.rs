@@ -23,16 +23,19 @@
 mod error;
 mod kvlog;
 
+use crate::error::Error;
+pub use crate::error::ErrorKind;
 pub use crate::kvlog::KVLog;
-
-use crate::error::{Error, ErrorKind};
 use failure::ResultExt;
 use std::fs::*;
-use std::io::BufWriter;
+use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::PathBuf;
 
 /// Since there is only 1 log file right now, its name is hardcoded.
-static LOG_FILE_NAME: &str = "0.bin";
+const LOG_FILE_NAME: &str = "0.bin";
+
+/// Write buffer size is 64 KiB. This allows for lower writing frequency.
+const WRITE_BUFFER_SIZE: usize = 64 * 1024;
 
 /// Result type of KvStore
 pub type Result<T> = std::result::Result<T, Error>;
@@ -56,7 +59,24 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// assert_eq!(kv.get("key1".to_owned()).unwrap(), None);
 /// ```
 pub struct KvStore {
+    /// Path to the log file
+    log_file_path: PathBuf,
     append_writer: BufWriter<File>,
+}
+
+impl Drop for KvStore {
+    /// To make sure all buffers are flushed.
+    fn drop(&mut self) {
+        match self.append_writer.flush() {
+            Ok(_) => {}
+            Err(e) => eprintln!("An error occurred when flushing buffer: {}", e.to_string()),
+        }
+    }
+}
+
+/// Not eof
+fn has_more<R: BufRead>(mut reader: R) -> Result<bool> {
+    Ok(reader.fill_buf().context(ErrorKind::Io)?.len() > 0)
 }
 
 impl KvStore {
@@ -80,7 +100,7 @@ impl KvStore {
     /// ```
     pub fn set(&mut self, key: String, value: String) -> Result<()> {
         // we only need to append
-        let kvlog = KVLog::new(key, value);
+        let kvlog = KVLog::new_set(key, value);
         kvlog.serialize_to_writer(&mut self.append_writer)?;
         Ok(())
     }
@@ -112,6 +132,10 @@ impl KvStore {
 
     /// Removes a key from the map if the key is present.
     ///
+    /// # Errors
+    ///
+    /// KeyNotFound - If the key does not exist.
+    ///
     /// # Examples
     ///
     /// ```
@@ -130,23 +154,54 @@ impl KvStore {
     ///
     /// ```
     pub fn remove(&mut self, key: String) -> Result<()> {
-        unimplemented!();
+        let f = OpenOptions::new()
+            .read(true)
+            .open(&self.log_file_path)
+            .context(ErrorKind::Io)?;
+        let mut reader = BufReader::new(f);
+        let mut key_exists = false;
+        while has_more(&mut reader)? {
+            match KVLog::deserialize_from_reader(&mut reader)? {
+                KVLog::Set(log_key, _) => {
+                    if log_key == key {
+                        key_exists = true
+                    }
+                }
+                KVLog::Rm(log_key) => {
+                    if log_key == key {
+                        key_exists = false
+                    }
+                }
+            }
+        }
+        if key_exists {
+            let kvlog = KVLog::new_rm(key);
+            kvlog.serialize_to_writer(&mut self.append_writer)?;
+            Ok(())
+        } else {
+            Err(Error::from(ErrorKind::KeyNotFound))
+        }
     }
 
-    /// Opens a KvStore
+    /// Opens a KvStore from given directory and setup the in-memory KvStore.
+    ///
+    /// The directory will be created if not exist.
     pub fn open(path: impl Into<PathBuf>) -> Result<KvStore> {
         let path = path.into();
         let dir_path = path.as_path();
         if !dir_path.exists() {
-            create_dir(dir_path);
+            create_dir(dir_path).context(ErrorKind::Io)?;
         }
         let log_file_path = dir_path.join(LOG_FILE_NAME);
         let append_file = OpenOptions::new()
             .create(true)
             .append(true)
-            .open(log_file_path)
+            .open(&log_file_path)
             .context(ErrorKind::Io)?;
-        let append_writer = BufWriter::new(append_file);
-        Ok(KvStore { append_writer })
+        let append_writer = BufWriter::with_capacity(WRITE_BUFFER_SIZE, append_file);
+        Ok(KvStore {
+            log_file_path,
+            append_writer,
+        })
     }
 }

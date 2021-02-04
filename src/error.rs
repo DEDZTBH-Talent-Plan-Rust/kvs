@@ -53,10 +53,13 @@ impl From<Context<ErrorKind>> for Error {
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Fail)]
 /// Error kind of KvStore
 pub enum ErrorKind {
-    #[fail(display = "IO Error occurred")]
+    #[fail(display = "An IO Error occurred")]
     /// Error caused by io
     Io,
-    #[fail(display = "ser/de Error occurred")]
+    #[fail(display = "A ser/de Error occurred")]
     /// Error caused by serde
     Serde,
+    #[fail(display = "Key not found")]
+    /// Error caused by getting or removing a key that does not exist
+    KeyNotFound,
 }
