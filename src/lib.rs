@@ -23,16 +23,19 @@
 mod error;
 mod kvlog;
 
-pub use crate::error::Result;
 pub use crate::kvlog::KVLog;
 
-use crate::error::ErrorKind;
+use crate::error::{Error, ErrorKind};
 use failure::ResultExt;
 use std::fs::*;
-use std::path::{Path, PathBuf};
+use std::io::BufWriter;
+use std::path::PathBuf;
 
 /// Since there is only 1 log file right now, its name is hardcoded.
-static LOG_FILE_NAME: &str = "0.log";
+static LOG_FILE_NAME: &str = "0.bin";
+
+/// Result type of KvStore
+pub type Result<T> = std::result::Result<T, Error>;
 
 /// A KvStore stores key-value pairs in memory.
 ///
@@ -52,7 +55,9 @@ static LOG_FILE_NAME: &str = "0.log";
 /// kv.remove("key1".to_owned()).unwrap();
 /// assert_eq!(kv.get("key1".to_owned()).unwrap(), None);
 /// ```
-pub struct KvStore;
+pub struct KvStore {
+    append_writer: BufWriter<File>,
+}
 
 impl KvStore {
     /// Inserts a key-value pair into the map.
@@ -74,7 +79,10 @@ impl KvStore {
     /// assert_eq!(kv.get("key1".to_owned()).unwrap(), Some("11".to_owned()));
     /// ```
     pub fn set(&mut self, key: String, value: String) -> Result<()> {
-        unimplemented!();
+        // we only need to append
+        let kvlog = KVLog::new(key, value);
+        kvlog.serialize_to_writer(&mut self.append_writer)?;
+        Ok(())
     }
 
     /// Returns the value corresponding to the key.
@@ -127,17 +135,18 @@ impl KvStore {
 
     /// Opens a KvStore
     pub fn open(path: impl Into<PathBuf>) -> Result<KvStore> {
-        unimplemented!();
+        let path = path.into();
+        let dir_path = path.as_path();
+        if !dir_path.exists() {
+            create_dir(dir_path);
+        }
+        let log_file_path = dir_path.join(LOG_FILE_NAME);
+        let append_file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(log_file_path)
+            .context(ErrorKind::Io)?;
+        let append_writer = BufWriter::new(append_file);
+        Ok(KvStore { append_writer })
     }
-}
-
-/// Create directory if not exist and open log file with given OpenOptions
-pub fn ensure_log_file(p: impl Into<PathBuf>, open_opts: &OpenOptions) -> Result<File> {
-    let pathbuf = p.into();
-    let path = pathbuf.as_path();
-    if !path.exists() {
-        create_dir(path);
-    }
-    let log_file_path = path.join(LOG_FILE_NAME);
-    Ok(open_opts.open(log_file_path).context(ErrorKind::Io)?)
 }

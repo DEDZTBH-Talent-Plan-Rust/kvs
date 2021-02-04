@@ -2,20 +2,22 @@
 //! Defines a log and its ser/de behavior.
 //!
 //! I used bincode ser/de format. It is simple, minimizes the space used by
-//! each log by only storing the key / value length and content, and content
-//! of key / value is human-readable to certain extent.
+//! each log by only storing the key/value length and content, and content
+//! of key/value is human-readable to certain extent.
 
-use crate::error::{Error, ErrorKind};
+use crate::error::ErrorKind;
 use crate::Result;
-use failure::{Fail, ResultExt};
+use failure::ResultExt;
 use serde::{Deserialize, Serialize};
 use std::io;
 
 #[derive(Serialize, Deserialize, Debug)]
 /// Definition of KVLog.
 pub struct KVLog {
-    key: String,
-    value: String,
+    /// key in a log
+    pub key: String,
+    /// value in a log
+    pub value: String,
 }
 
 impl KVLog {

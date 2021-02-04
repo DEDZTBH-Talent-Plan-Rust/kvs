@@ -1,5 +1,5 @@
 #![deny(missing_docs)]
-//! Defines error and result for KvStore
+//! Defines error for KvStore
 //!
 //! Using the "An Error and ErrorKind pair" pattern
 
@@ -7,9 +7,6 @@ use failure::Backtrace;
 use failure::{Context, Fail};
 use std::fmt;
 use std::fmt::Display;
-
-/// Result type of KvStore
-pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug)]
 /// Error by KvStore

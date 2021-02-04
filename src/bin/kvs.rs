@@ -1,21 +1,21 @@
 use clap::Clap;
 use clap::ValueHint;
-use kvs::{ensure_log_file, KVLog, Result};
-use std::fs::OpenOptions;
-use std::io::BufWriter;
+use kvs::{KvStore, Result};
 use std::path::PathBuf;
 use std::process::exit;
 
 #[derive(Clap)]
 #[clap(author, about, version)]
+#[allow(dead_code)]
 pub struct Options {
     #[clap(subcommand)]
     subcmd: SubCommand,
-    #[clap(short, long, parse(from_os_str), value_hint = ValueHint::DirPath, default_value = "kvstore_data/")]
+    #[clap(short, long, parse(from_os_str), value_hint = ValueHint::DirPath, default_value = "kvs_data/")]
     path: PathBuf,
 }
 
 #[derive(Clap)]
+#[allow(dead_code)]
 enum SubCommand {
     #[clap(author, about = "Set the value of a string key to a string", version)]
     Set(SetCmd),
@@ -26,31 +26,30 @@ enum SubCommand {
 }
 
 #[derive(Clap)]
+#[allow(dead_code)]
 struct SetCmd {
     key: String,
     value: String,
 }
 
 #[derive(Clap)]
+#[allow(dead_code)]
 struct GetCmd {
     key: String,
 }
 
 #[derive(Clap)]
+#[allow(dead_code)]
 struct RmCmd {
     key: String,
 }
 
 fn main() -> Result<()> {
     let opt = Options::parse();
+    let mut store = KvStore::open(opt.path)?;
     match opt.subcmd {
         SubCommand::Set(cmd) => {
-            // we only need to append
-            let mut open_opts = OpenOptions::new();
-            let log_file = ensure_log_file(&opt.path, open_opts.create(true).append(true))?;
-            let writer = BufWriter::new(log_file);
-            let kvlog = KVLog::new(cmd.key, cmd.value);
-            kvlog.serialize_to_writer(writer)?;
+            store.set(cmd.key, cmd.value)?;
         }
         SubCommand::Get(cmd) => {
             eprintln!("unimplemented");
