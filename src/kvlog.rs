@@ -35,7 +35,7 @@ impl KvLog {
     ///
     /// # Errors
     ///
-    /// Serde - Serialization failed
+    /// Serde - Serialization of a `KvLog` failed.
     ///
     pub fn serialize_to_writer<W>(&self, writer: W) -> Result<()>
     where
@@ -49,7 +49,7 @@ impl KvLog {
     ///
     /// # Errors
     ///
-    /// Serde - Deserialization failed
+    /// Serde - Deserialization of a `KvLog` failed.
     ///
     pub fn deserialize_from_reader<R>(reader: R) -> Result<KvLog>
     where
@@ -59,8 +59,8 @@ impl KvLog {
         Ok(kvstore)
     }
 
-    /// Get key from a KvLog
-    pub fn key(self) -> String {
+    /// Turn KvLog into its key.
+    pub fn into_key(self) -> String {
         match self {
             KvLog::Set(k, _) => k,
             KvLog::Rm(k) => k,

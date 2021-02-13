@@ -30,7 +30,6 @@ pub use crate::error::ErrorKind;
 pub use crate::kvlog::KvLog;
 use failure::ResultExt;
 use std::collections::HashMap;
-use std::fs;
 use std::fs::*;
 use std::io::{BufRead, BufReader, BufWriter, Cursor, Seek, SeekFrom, Write};
 use std::path::PathBuf;
@@ -39,17 +38,16 @@ use std::path::PathBuf;
 const LOG_FILE_NAME: &str = "0.bin";
 /// Used by compaction
 const TEMP_LOG_FILE_NAME: &str = "compact.tmp";
-
 /// Write buffer size is 16 KiB. This allows for lower writing frequency.
 /// (If I set it higher the compaction test will falsely pass)
 const WRITE_BUFFER_SIZE: usize = 16 * 1024;
-
 /// Compact file when there are enough redundant records.
 const COMPACT_REDUNDANT_THRESHOLD: usize = 1024;
+/// Whether to enable corruption check
+const CORRUPTION_CHECK: bool = false;
 
 /// Result type of KvStore
 pub type Result<T> = std::result::Result<T, Error>;
-
 type LogPointerMap = HashMap<String, u64>;
 
 /// A KvStore stores key-value pairs in log structure on disk.
@@ -73,11 +71,12 @@ type LogPointerMap = HashMap<String, u64>;
 /// assert_eq!(kv.get("key1".to_owned()).unwrap(), None);
 /// ```
 pub struct KvStore {
-    /// Path to the log file
+    /// Path to the log file.
     log_file_path: PathBuf,
-    /// Reader that can be reused by get
+    /// Reader that can be reused by get.
     reader: BufReader<File>,
-    /// Writer in append mode for adding new log to disk
+    /// Writer in append mode for adding new log to disk.
+    /// The cursor should always be at the end of the log file
     append_writer: BufWriter<File>,
     /// Log pointer map
     log_pointer: LogPointerMap,
@@ -95,7 +94,7 @@ impl Drop for KvStore {
     }
 }
 
-/// Not eof
+/// Detect if we have not reached eof
 fn has_more<R: BufRead>(mut reader: R) -> Result<bool> {
     Ok(reader.fill_buf().context(ErrorKind::Io)?.len() > 0)
 }
@@ -118,7 +117,7 @@ impl KvStore {
     ///
     /// # Errors
     ///
-    /// - Io: Failed to open log file
+    /// - Io: Failed to open log file or failed to read metadata of log file
     /// - Serde: Failed to serialize the set command
     ///
     /// # Examples
@@ -146,7 +145,7 @@ impl KvStore {
         kvlog.serialize_to_writer(&mut self.append_writer)?;
 
         // update log pointer map
-        if let Some(_) = self.log_pointer.insert(kvlog.key(), new_offset) {
+        if let Some(_) = self.log_pointer.insert(kvlog.into_key(), new_offset) {
             self.increment_redundant();
         };
 
@@ -159,7 +158,7 @@ impl KvStore {
     ///
     /// # Errors
     ///
-    /// - Io: If log file failed to be read
+    /// - Io: If log file or its metadata failed to be read
     /// - Serde: If log deserialization failed when reading log file.
     /// - Corruption: If log file is different from log pointer map in memory.
     ///
@@ -187,10 +186,11 @@ impl KvStore {
             None => Ok(None),
             Some(&offset) => match self.get_kvlog_from_offset(offset)? {
                 KvLog::Set(_k, v) => {
-                    // Optional check for key match
-                    // if key != _k {
-                    //     return Err(Error::from(ErrorKind::Corruption));
-                    // }
+                    if CORRUPTION_CHECK {
+                        if key != _k {
+                            return Err(Error::from(ErrorKind::Corruption));
+                        }
+                    }
                     Ok(Some(v))
                 }
                 _ => Err(Error::from(ErrorKind::Corruption)),
@@ -199,6 +199,7 @@ impl KvStore {
     }
 
     /// Underlying implementation for get
+    /// Please refer to `get`
     fn get_kvlog_from_offset(&mut self, offset: u64) -> Result<KvLog> {
         let log_len = file_len(&self.log_file_path)?;
 
@@ -258,7 +259,7 @@ impl KvStore {
             kvlog.serialize_to_writer(&mut self.append_writer)?;
 
             // update log pointer map
-            if let Some(_) = self.log_pointer.remove(&kvlog.key()) {
+            if let Some(_) = self.log_pointer.remove(&kvlog.into_key()) {
                 self.increment_redundant();
             };
 
@@ -349,57 +350,65 @@ impl KvStore {
 
     /// Compact the log file. Only keep the latest set records for each key.
     /// If latest record for a key is rm, the key will not be present at all after compaction.
-    /// Will preserve order of the latest records.
     ///
     /// It will create a new file and write the new compacted log in it.
-    /// The new file is discarded if an error occurred and the original file is unmodified (aka "recovered").
-    /// Should anything failed, the KvStore will not be modified.
+    /// If anything failed, the in-memory KvStore and log file will not be modified
+    /// but the new temp file will not be deleted if it is already created.
     /// Otherwise, the old file is replaced with the new file and KvStore is updated.
+    ///
+    /// Will preserve order of the latest records. If this is not necessary, we can eliminate
+    /// a sorting of entries in log pointer map.
+    ///
+    /// The memory usage is O(|log pointer map|) in order to avoid modifying the original
+    /// log pointer map in case of error. If it is acceptable to corrupt the original log
+    /// pointer map in case of error, the memory usage can be improved to O(|largest entry in log pointer map|).
+    ///
+    /// # Errors
+    ///
+    /// - Io: Failed to open/write to/read metadata of the temp file or failed to rename the temp file to log file.
+    /// - Serde: Failed to serialize or deserialize `KvLog` entries.
+    /// - Corruption: If log file is different from log pointer map in memory.
     fn compact(&mut self) -> Result<()> {
-        let mut new_log_file_path = self.log_file_path.clone();
-        new_log_file_path.pop();
-        new_log_file_path = new_log_file_path.join(TEMP_LOG_FILE_NAME);
+        let mut temp_log_file_path = self.log_file_path.clone();
+        temp_log_file_path.pop();
+        temp_log_file_path = temp_log_file_path.join(TEMP_LOG_FILE_NAME);
 
         // set up append_writer used by set and rm
-        if new_log_file_path.exists() {
-            fs::remove_file(&new_log_file_path).context(ErrorKind::Io)?;
-        }
         let new_append_file = OpenOptions::new()
-            .append(true)
+            .write(true)
             .create(true)
-            .open(&new_log_file_path)
+            .truncate(true)
+            .open(&temp_log_file_path)
             .context(ErrorKind::Io)?;
-
         let mut new_append_writer = BufWriter::with_capacity(WRITE_BUFFER_SIZE, new_append_file);
 
-        // Make sure the original log pointer map is not modified
+        // create reader in advance so we can rollback if this fails
+        let new_reader = BufReader::new(File::open(&temp_log_file_path).context(ErrorKind::Io)?);
+
+        // Make sure the original log pointer map is not modified.
         let mut new_log_pointer: LogPointerMap = self.log_pointer.clone();
         let mut log_pointers = new_log_pointer.iter_mut().collect::<Vec<_>>();
-        // Sort by log pointer to ensure original order is preserved in log file. Remove this line if this is not necessary.
+        // Sort by log pointer to ensure original order in log file is preserved.
         log_pointers.sort_unstable_by_key(|x| *x.1);
         for (_key, val) in log_pointers {
             let kvlog = self.get_kvlog_from_offset(*val)?;
-
-            // Optional check for kvlog
-            // match kvlog {
-            //     KvLog::Set(k, _) => {
-            //         if k != _key {
-            //             return Err(Error::from(ErrorKind::Corruption));
-            //         }
-            //     }
-            //     _ => return Err(Error::from(ErrorKind::Corruption)),
-            // }
-
+            if CORRUPTION_CHECK {
+                match kvlog {
+                    KvLog::Set(ref k, _) => {
+                        if k != _key {
+                            return Err(Error::from(ErrorKind::Corruption));
+                        }
+                    }
+                    _ => return Err(Error::from(ErrorKind::Corruption)),
+                }
+            }
             // Update log pointer map right away
-            *val = file_len(&new_log_file_path)? + new_append_writer.buffer().len() as u64;
+            *val = file_len(&temp_log_file_path)? + new_append_writer.buffer().len() as u64;
             kvlog.serialize_to_writer(&mut new_append_writer)?;
         }
 
-        // create reader in advance so we can rollback if this fails
-        let new_reader = BufReader::new(File::open(&new_log_file_path).context(ErrorKind::Io)?);
-
         // New file is ready, overwrite the old file. Rollback after this is impossible.
-        rename(&new_log_file_path, &self.log_file_path).context(ErrorKind::Io)?;
+        rename(&temp_log_file_path, &self.log_file_path).context(ErrorKind::Io)?;
 
         // Update in-memory components
         self.reader = new_reader;
